@@ -1,8 +1,38 @@
+/*************************************************************************/
+/*  http_request.h                                                       */
+/*************************************************************************/
+/*                       This file is part of:                           */
+/*                           GODOT ENGINE                                */
+/*                    http://www.godotengine.org                         */
+/*************************************************************************/
+/* Copyright (c) 2007-2016 Juan Linietsky, Ariel Manzur.                 */
+/*                                                                       */
+/* Permission is hereby granted, free of charge, to any person obtaining */
+/* a copy of this software and associated documentation files (the       */
+/* "Software"), to deal in the Software without restriction, including   */
+/* without limitation the rights to use, copy, modify, merge, publish,   */
+/* distribute, sublicense, and/or sell copies of the Software, and to    */
+/* permit persons to whom the Software is furnished to do so, subject to */
+/* the following conditions:                                             */
+/*                                                                       */
+/* The above copyright notice and this permission notice shall be        */
+/* included in all copies or substantial portions of the Software.       */
+/*                                                                       */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
+/*************************************************************************/
 #ifndef HTTPREQUEST_H
 #define HTTPREQUEST_H
 
 #include "node.h"
 #include "io/http_client.h"
+#include "os/file_access.h"
+#include "os/thread.h"
 
 class HTTPRequest : public Node {
 
@@ -20,6 +50,8 @@ public:
 		RESULT_NO_RESPONSE,
 		RESULT_BODY_SIZE_LIMIT_EXCEEDED,
 		RESULT_REQUEST_FAILED,
+		RESULT_DOWNLOAD_FILE_CANT_OPEN,
+		RESULT_DOWNLOAD_FILE_WRITE_ERROR,
 		RESULT_REDIRECT_LIMIT_REACHED
 
 	};
@@ -38,14 +70,18 @@ private:
 	bool request_sent;
 	Ref<HTTPClient> client;
 	ByteArray body;
-	bool use_threads;
+	volatile bool use_threads;
 
 	bool got_response;
 	int response_code;
 	DVector<String> response_headers;
 
-	int body_len;
+	String download_to_file;
 
+	FileAccess *file;
+
+	int body_len;
+	volatile int downloaded;
 	int body_size_limit;
 
 	int redirections;
@@ -58,7 +94,19 @@ private:
 
 	void _redirect_request(const String& p_new_url);
 
+
+	bool _handle_response(bool *ret_value);
+
+	Error _parse_url(const String& p_url);
 	Error _request();
+
+	volatile bool thread_done;
+	volatile bool thread_request_quit;
+
+	Thread *thread;
+
+	void _request_done(int p_status, int p_code, const StringArray& headers, const ByteArray& p_data);
+	static void _thread_func(void *p_userdata);
 
 protected:
 
@@ -73,13 +121,20 @@ public:
 	void set_use_threads(bool p_use);
 	bool is_using_threads() const;
 
+	void set_download_file(const String& p_file);
+	String get_download_file() const;
+
 	void set_body_size_limit(int p_bytes);
 	int get_body_size_limit() const;
 
 	void set_max_redirects(int p_max);
 	int get_max_redirects() const;
 
+	int get_downloaded_bytes() const;
+	int get_body_size() const;
+
 	HTTPRequest();
+	~HTTPRequest();
 };
 
 #endif // HTTPREQUEST_H

@@ -1,12 +1,12 @@
 
 import os
-import sys	
+import sys
 import platform
 
 
 def is_active():
 	return True
-        
+
 def get_name():
         return "X11"
 
@@ -20,11 +20,11 @@ def can_build():
 		return False # no x11 on mac for now
 
 	errorval=os.system("pkg-config --version > /dev/null")
-	
+
 	if (errorval):
 		print("pkg-config not found.. x11 disabled.")
 		return False
-	
+
 	x11_error=os.system("pkg-config x11 --modversion > /dev/null ")
 	if (x11_error):
 		print("X11 not found.. x11 disabled.")
@@ -39,15 +39,20 @@ def can_build():
 	if (x11_error):
 		print("xcursor not found.. x11 disabled.")
 		return False
-	
+
 	x11_error=os.system("pkg-config xinerama --modversion > /dev/null ")
 	if (x11_error):
 		print("xinerama not found.. x11 disabled.")
 		return False
 
+	x11_error=os.system("pkg-config xrandr --modversion > /dev/null ")
+	if (x11_error):
+			print("xrandr not found.. x11 disabled.")
+			return False
+
 
 	return True # X11 enabled
-  
+
 def get_opts():
 
 	return [
@@ -57,18 +62,20 @@ def get_opts():
 	('use_leak_sanitizer','Use llvm compiler sanitize memory leaks','no'),
 	('pulseaudio','Detect & Use pulseaudio','yes'),
 	('udev','Use udev for gamepad connection callbacks','no'),
-	('new_wm_api', 'Use experimental window management API','no'),
 	('debug_release', 'Add debug symbols to release version','no'),
 	]
-  
+
 def get_flags():
 
 	return [
 	('builtin_zlib', 'no'),
+	('glew', 'yes'),
 	("openssl", "yes"),
+	('freetype','yes'), #use system freetype
+
 	#("theora","no"),
         ]
-			
+
 
 
 def configure(env):
@@ -131,6 +138,7 @@ def configure(env):
 	env.ParseConfig('pkg-config x11 --cflags --libs')
 	env.ParseConfig('pkg-config xinerama --cflags --libs')
 	env.ParseConfig('pkg-config xcursor --cflags --libs')
+	env.ParseConfig('pkg-config xrandr --cflags --libs')
 
 	if (env["openssl"]=="yes"):
 		env.ParseConfig('pkg-config openssl --cflags --libs')
@@ -140,14 +148,9 @@ def configure(env):
 		env.ParseConfig('pkg-config freetype2 --cflags --libs')
 
 
-	if (env["freetype"]!="no"):
-		env.Append(CCFLAGS=['-DFREETYPE_ENABLED'])
-		if (env["freetype"]=="builtin"):
-			env.Append(CPPPATH=['#tools/freetype'])
-			env.Append(CPPPATH=['#tools/freetype/freetype/include'])
 
 
-	env.Append(CPPFLAGS=['-DOPENGL_ENABLED','-DGLEW_ENABLED'])
+	env.Append(CPPFLAGS=['-DOPENGL_ENABLED'])
 
 	if os.system("pkg-config --exists alsa")==0:
 		print("Enabling ALSA")
@@ -178,7 +181,9 @@ def configure(env):
 			print("PulseAudio development libraries not found, disabling driver")
 
 	env.Append(CPPFLAGS=['-DX11_ENABLED','-DUNIX_ENABLED','-DGLES2_ENABLED','-DGLES_OVER_GL'])
-	env.Append(LIBS=['GL', 'GLU', 'pthread', 'z'])
+	env.Append(LIBS=['GL', 'pthread', 'z'])
+	if (platform.system() == "Linux"):
+		env.Append(LIBS='dl')
 	#env.Append(CPPFLAGS=['-DMPC_FIXED_POINT'])
 
 #host compiler is default..
@@ -198,12 +203,10 @@ def configure(env):
 	env.Append( BUILDERS = { 'GLSL120GLES' : env.Builder(action = methods.build_gles2_headers, suffix = 'glsl.h',src_suffix = '.glsl') } )
 	#env.Append( BUILDERS = { 'HLSL9' : env.Builder(action = methods.build_hlsl_dx9_headers, suffix = 'hlsl.h',src_suffix = '.hlsl') } )
 
-	if(env["new_wm_api"]=="yes"):
-		env.Append(CPPFLAGS=['-DNEW_WM_API'])
-		env.ParseConfig('pkg-config xinerama --cflags --libs')
-
 	if (env["use_static_cpp"]=="yes"):
 		env.Append(LINKFLAGS=['-static-libstdc++'])
 
-	env["x86_opt_gcc"]=True
+	list_of_x86 = ['x86_64', 'x86', 'i386', 'i586']
+	if any(platform.machine() in s for s in list_of_x86):
+		env["x86_opt_gcc"]=True
 

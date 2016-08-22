@@ -32,7 +32,7 @@
 
 #include "servers/visual_server.h"
 #include "servers/visual/rasterizer.h"
-#include "balloon_allocator.h"
+#include "allocators.h"
 #include "octree.h"
 
 /**
@@ -160,6 +160,7 @@ class VisualServerRaster : public VisualServer {
 		Scenario *scenario;
 		bool update;
 		bool update_aabb;
+		bool update_materials;
 		Instance *update_next;
 		InstanceType base_type;
 
@@ -169,7 +170,6 @@ class VisualServerRaster : public VisualServer {
 		AABB transformed_aabb;
 		uint32_t object_ID;
 		bool visible;
-		bool receive_shadows;
 		bool visible_in_all_rooms;
 		uint32_t layer_mask;
 		float draw_range_begin;
@@ -300,7 +300,7 @@ class VisualServerRaster : public VisualServer {
 			update=false;
 			visible=true;
 			data.cast_shadows=SHADOW_CASTING_SETTING_ON;
-			receive_shadows=true;
+			data.receive_shadows=true;
 			data.depth_scale=false;
 			data.billboard=false;
 			data.billboard_y=false;
@@ -318,6 +318,8 @@ class VisualServerRaster : public VisualServer {
 			draw_range_end=0;
 			extra_margin=0;
 			visible_in_all_rooms=false;
+			update_aabb=false;
+			update_materials=false;
 
 			baked_light=NULL;
 			baked_light_info=NULL;
@@ -542,10 +544,12 @@ class VisualServerRaster : public VisualServer {
 		RID texture;
 		Point2 center;
 		bool visible;
+		Rect2 region;
 		Cursor() {
 
 			rot = 0;
 			visible = false;
+			region = Rect2();
 		};
 	};
 
@@ -584,8 +588,8 @@ class VisualServerRaster : public VisualServer {
 
 	void _portal_disconnect(Instance *p_portal,bool p_cleanup=false);
 	void _portal_attempt_connect(Instance *p_portal);
-	void _dependency_queue_update(RID p_rid,bool p_update_aabb=false);
-	_FORCE_INLINE_ void _instance_queue_update(Instance *p_instance,bool p_update_aabb=false);
+	void _dependency_queue_update(RID p_rid, bool p_update_aabb=false, bool p_update_materials=false);
+	_FORCE_INLINE_ void _instance_queue_update(Instance *p_instance,bool p_update_aabb=false,bool p_update_materials=false);
 	void _update_instances();
 	void _update_instance_aabb(Instance *p_instance);
 	void _update_instance(Instance *p_instance);
@@ -673,6 +677,8 @@ public:
 	virtual String texture_get_path(RID p_texture) const;
 
 	virtual void texture_debug_usage(List<TextureInfo> *r_info);
+
+	virtual void texture_set_shrink_all_x2_on_set_data(bool p_enable);
 
 
 	/* SHADER API */
@@ -950,6 +956,15 @@ public:
 	virtual void baked_light_add_lightmap(RID p_baked_light,const RID p_texture,int p_id);
 	virtual void baked_light_clear_lightmaps(RID p_baked_light);
 
+	virtual void baked_light_set_realtime_color_enabled(RID p_baked_light, const bool p_enabled);
+	virtual bool baked_light_get_realtime_color_enabled(RID p_baked_light) const;
+
+	virtual void baked_light_set_realtime_color(RID p_baked_light, const Color& p_color);
+	virtual Color baked_light_get_realtime_color(RID p_baked_light) const;
+
+	virtual void baked_light_set_realtime_energy(RID p_baked_light, const float p_energy);
+	virtual float baked_light_get_realtime_energy(RID p_baked_light) const;
+
 	/* BAKED LIGHT SAMPLER */
 
 	virtual RID baked_light_sampler_create();
@@ -1073,6 +1088,9 @@ public:
 	virtual void instance_set_morph_target_weight(RID p_instance,int p_shape, float p_weight);
 	virtual float instance_get_morph_target_weight(RID p_instance,int p_shape) const;
 
+	virtual void instance_set_surface_material(RID p_instance,int p_surface, RID p_material);
+
+
 	virtual void instance_set_transform(RID p_instance, const Transform& p_transform);
 	virtual Transform instance_get_transform(RID p_instance) const;
 
@@ -1155,7 +1173,7 @@ public:
 	virtual void canvas_item_add_circle(RID p_item, const Point2& p_pos, float p_radius,const Color& p_color);
 	virtual void canvas_item_add_texture_rect(RID p_item, const Rect2& p_rect, RID p_texture,bool p_tile=false,const Color& p_modulate=Color(1,1,1),bool p_transpose=false);
 	virtual void canvas_item_add_texture_rect_region(RID p_item, const Rect2& p_rect, RID p_texture,const Rect2& p_src_rect,const Color& p_modulate=Color(1,1,1),bool p_transpose=false);
-	virtual void canvas_item_add_style_box(RID p_item, const Rect2& p_rect, RID p_texture,const Vector2& p_topleft, const Vector2& p_bottomright, bool p_draw_center=true,const Color& p_modulate=Color(1,1,1));
+	virtual void canvas_item_add_style_box(RID p_item, const Rect2& p_rect, const Rect2& p_source, RID p_texture,const Vector2& p_topleft, const Vector2& p_bottomright, bool p_draw_center=true,const Color& p_modulate=Color(1,1,1));
 	virtual void canvas_item_add_primitive(RID p_item, const Vector<Point2>& p_points, const Vector<Color>& p_colors,const Vector<Point2>& p_uvs, RID p_texture,float p_width=1.0);
 	virtual void canvas_item_add_polygon(RID p_item, const Vector<Point2>& p_points, const Vector<Color>& p_colors,const Vector<Point2>& p_uvs=Vector<Point2>(), RID p_texture=RID());
 	virtual void canvas_item_add_triangle_array(RID p_item, const Vector<int>& p_indices, const Vector<Point2>& p_points, const Vector<Color>& p_colors,const Vector<Point2>& p_uvs=Vector<Point2>(), RID p_texture=RID(), int p_count=-1);
@@ -1224,7 +1242,7 @@ public:
 
 	/* CURSOR */
 	virtual void cursor_set_rotation(float p_rotation, int p_cursor = 0); // radians
-	virtual void cursor_set_texture(RID p_texture, const Point2 &p_center_offset, int p_cursor=0);
+	virtual void cursor_set_texture(RID p_texture, const Point2 &p_center_offset, int p_cursor=0, const Rect2 &p_region=Rect2());
 	virtual void cursor_set_visible(bool p_visible, int p_cursor = 0);
 	virtual void cursor_set_pos(const Point2& p_pos, int p_cursor = 0);
 

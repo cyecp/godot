@@ -47,6 +47,7 @@ class ScriptServer {
 	static ScriptLanguage *_languages[MAX_LANGUAGES];
 	static int _language_count;
 	static bool scripting_enabled;
+	static bool reload_scripts_on_save;
 public:
 
 	static void set_scripting_enabled(bool p_enabled);
@@ -54,6 +55,13 @@ public:
 	static int get_language_count();
 	static ScriptLanguage *get_language(int p_idx);
 	static void register_language(ScriptLanguage *p_language);
+	static void unregister_language(ScriptLanguage *p_language);
+
+	static void set_reload_scripts_on_save(bool p_enable);
+	static bool is_reload_scripts_on_save_enabled();
+
+	static void thread_enter();
+	static void thread_exit();
 
 	static void init_languages();
 };
@@ -70,6 +78,7 @@ class Script : public Resource {
 
 protected:
 
+	virtual bool editor_can_reload_from_file() { return false; } // this is handled by editor better
 	void _notification( int p_what);
 	static void _bind_methods();
 
@@ -87,7 +96,10 @@ public:
 	virtual bool has_source_code() const=0;
 	virtual String get_source_code() const=0;
 	virtual void set_source_code(const String& p_code)=0;
-	virtual Error reload()=0;
+	virtual Error reload(bool p_keep_state=false)=0;
+
+	virtual bool has_method(const StringName& p_method) const=0;
+	virtual MethodInfo get_method_info(const StringName& p_method) const=0;
 
 	virtual bool is_tool() const=0;
 
@@ -101,6 +113,7 @@ public:
 	virtual bool get_property_default_value(const StringName& p_property,Variant& r_value) const=0;
 
 	virtual void update_exports() {} //editor tool
+	virtual void get_script_method_list(List<MethodInfo> *p_list) const=0;
 
 
 	Script() {}
@@ -108,6 +121,8 @@ public:
 
 class ScriptInstance {
 public:
+
+
 	virtual bool set(const StringName& p_name, const Variant& p_value)=0;
 	virtual bool get(const StringName& p_name, Variant &r_ret) const=0;
 	virtual void get_property_list(List<PropertyInfo> *p_properties) const=0;
@@ -124,8 +139,27 @@ public:
 	virtual void call_multilevel_reversed(const StringName& p_method,const Variant** p_args,int p_argcount);
 	virtual void notification(int p_notification)=0;
 
+	//this is used by script languages that keep a reference counter of their own
+	//you can make make Ref<> not die when it reaches zero, so deleting the reference
+	//depends entirely from the script
+
+	virtual void refcount_incremented() {}
+	virtual bool refcount_decremented() { return true; } //return true if it can die
 
 	virtual Ref<Script> get_script() const=0;
+
+	virtual bool is_placeholder() const { return false; }
+
+	enum RPCMode {
+		RPC_MODE_DISABLED,
+		RPC_MODE_REMOTE,
+		RPC_MODE_SYNC,
+		RPC_MODE_MASTER,
+		RPC_MODE_SLAVE,
+	};
+
+	virtual RPCMode get_rpc_mode(const StringName& p_method) const=0;
+	virtual RPCMode get_rset_mode(const StringName& p_variable) const=0;
 
 	virtual ScriptLanguage *get_language()=0;
 	virtual ~ScriptInstance();
@@ -160,7 +194,7 @@ public:
 	virtual void get_reserved_words(List<String> *p_words) const=0;
 	virtual void get_comment_delimiters(List<String> *p_delimiters) const=0;
 	virtual void get_string_delimiters(List<String> *p_delimiters) const=0;
-	virtual String get_template(const String& p_class_name, const String& p_base_class_name) const=0;
+	virtual Ref<Script> get_template(const String& p_class_name, const String& p_base_class_name) const=0;
 	virtual bool validate(const String& p_script, int &r_line_error,int &r_col_error,String& r_test_error, const String& p_path="",List<String> *r_functions=NULL) const=0;
 	virtual Script *create_script() const=0;
 	virtual bool has_named_classes() const=0;
@@ -169,6 +203,12 @@ public:
 	virtual Error complete_code(const String& p_code, const String& p_base_path, Object*p_owner,List<String>* r_options,String& r_call_hint) { return ERR_UNAVAILABLE; }
 	virtual void auto_indent_code(String& p_code,int p_from_line,int p_to_line) const=0;
 	virtual void add_global_constant(const StringName& p_variable,const Variant& p_value)=0;
+
+	/* MULTITHREAD FUNCTIONS */
+
+	//some VMs need to be notified of thread creation/exiting to allocate a stack
+	virtual void thread_enter() {}
+	virtual void thread_exit() {}
 
 	/* DEBUGGER FUNCTIONS */
 
@@ -189,11 +229,28 @@ public:
 
 	virtual Vector<StackInfo> debug_get_current_stack_info() { return Vector<StackInfo>(); }
 
+	virtual void reload_all_scripts()=0;
+	virtual void reload_tool_script(const Ref<Script>& p_script,bool p_soft_reload)=0;
 	/* LOADER FUNCTIONS */
 
 	virtual void get_recognized_extensions(List<String> *p_extensions) const=0;
 	virtual void get_public_functions(List<MethodInfo> *p_functions) const=0;
 	virtual void get_public_constants(List<Pair<String,Variant> > *p_constants) const=0;
+
+	struct ProfilingInfo {
+		StringName signature;
+		uint64_t call_count;
+		uint64_t total_time;
+		uint64_t self_time;
+
+	};
+
+	virtual void profiling_start()=0;
+	virtual void profiling_stop()=0;
+
+	virtual int profiling_get_accumulated_data(ProfilingInfo *p_info_arr,int p_info_max)=0;
+	virtual int profiling_get_frame_data(ProfilingInfo *p_info_arr,int p_info_max)=0;
+
 
 	virtual void frame();
 
@@ -232,6 +289,11 @@ public:
 	Object *get_owner() { return owner; }
 
 	void update(const List<PropertyInfo> &p_properties,const Map<StringName,Variant>& p_values); //likely changed in editor
+
+	virtual bool is_placeholder() const { return true; }
+
+	virtual RPCMode get_rpc_mode(const StringName& p_method) const { return RPC_MODE_DISABLED; }
+	virtual RPCMode get_rset_mode(const StringName& p_variable) const { return RPC_MODE_DISABLED; }
 
 	PlaceHolderScriptInstance(ScriptLanguage *p_language, Ref<Script> p_script,Object *p_owner);
 	~PlaceHolderScriptInstance();
@@ -308,6 +370,13 @@ public:
 
 	virtual void set_request_scene_tree_message_func(RequestSceneTreeMessageFunc p_func, void *p_udata) {}
 	virtual void set_live_edit_funcs(LiveEditFuncs *p_funcs) {}
+
+	virtual bool is_profiling() const=0;
+	virtual void add_profiling_frame_data(const StringName& p_name,const Array& p_data)=0;
+	virtual void profiling_start()=0;
+	virtual void profiling_end()=0;
+	virtual void profiling_set_frame_times(float p_frame_time,float p_idle_time,float p_fixed_time,float p_fixed_frame_time)=0;
+
 
 	ScriptDebugger();
 	virtual ~ScriptDebugger() {singleton=NULL;}

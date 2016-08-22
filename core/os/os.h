@@ -60,6 +60,7 @@ class OS {
 	int _target_fps;
 	float _time_scale;
 	bool _pixel_snap;
+	bool _allow_hidpi;
 
 	char *last_error;
 
@@ -75,8 +76,9 @@ public:
 		int width,height;
 		bool fullscreen;
 		bool resizable;
+		bool borderless_window;
 		float get_aspect() const { return (float)width/(float)height; }
-		VideoMode(int p_width=1024,int p_height=600,bool p_fullscreen=false, bool p_resizable = true) {width=p_width; height=p_height; fullscreen=p_fullscreen; resizable = p_resizable; }
+		VideoMode(int p_width=1024,int p_height=600,bool p_fullscreen=false, bool p_resizable = true,bool p_borderless_window=false) { width=p_width; height=p_height; fullscreen=p_fullscreen; resizable = p_resizable; borderless_window=p_borderless_window; }
 	};
 protected:
 friend class Main;
@@ -159,6 +161,7 @@ public:
 	virtual void set_current_screen(int p_screen) { }
 	virtual Point2 get_screen_position(int p_screen=0) const { return Point2(); }
 	virtual Size2 get_screen_size(int p_screen=0) const { return get_window_size(); }
+	virtual int get_screen_dpi(int p_screen=0) const { return 72; }
 	virtual Point2 get_window_position() const { return Vector2(); }
 	virtual void set_window_position(const Point2& p_position) {}
 	virtual Size2 get_window_size() const=0;
@@ -171,7 +174,10 @@ public:
 	virtual bool is_window_minimized() const { return false; }
 	virtual void set_window_maximized(bool p_enabled) {}
 	virtual bool is_window_maximized() const { return true; }
+	virtual void request_attention() { }
 
+	virtual void set_borderless_window(int p_borderless) {}
+	virtual bool get_borderless_window() { return 0; }
 
 
 
@@ -181,14 +187,14 @@ public:
 	virtual void set_target_fps(int p_fps);
 	virtual float get_target_fps() const;
 
-	virtual float get_frames_per_second() const { return _fps; };
+	virtual float get_frames_per_second() const { return _fps; }
 
 	virtual void set_keep_screen_on(bool p_enabled);
 	virtual bool is_keep_screen_on() const;
 	virtual void set_low_processor_usage_mode(bool p_enabled);
 	virtual bool is_in_low_processor_usage_mode() const;
 
-	virtual String get_installed_templates_path() const { return ""; };
+	virtual String get_installed_templates_path() const { return ""; }
 	virtual String get_executable_path() const;
 	virtual Error execute(const String& p_path, const List<String>& p_arguments,bool p_blocking,ProcessID *r_child_id=NULL,String* r_pipe=NULL,int *r_exitcode=NULL)=0;
 	virtual Error kill(const ProcessID& p_pid)=0;
@@ -221,7 +227,9 @@ public:
 	};
 
 	enum Month {
-		MONTH_JANUARY,
+		/// Start at 1 to follow Windows SYSTEMTIME structure
+		/// https://msdn.microsoft.com/en-us/library/windows/desktop/ms724950(v=vs.85).aspx
+		MONTH_JANUARY = 1,
 		MONTH_FEBRUARY,
 		MONTH_MARCH,
 		MONTH_APRIL,
@@ -319,6 +327,7 @@ public:
 
 	virtual String get_locale() const;
 
+	String get_safe_application_name() const;
 	virtual String get_data_dir() const;
 	virtual String get_resource_dir() const;
 
@@ -355,7 +364,7 @@ public:
 	virtual void set_screen_orientation(ScreenOrientation p_orientation);
 	ScreenOrientation get_screen_orientation() const;
 
-	virtual void move_window_to_foreground() {};
+	virtual void move_window_to_foreground() {}
 
 	virtual void debug_break();
 
@@ -412,6 +421,12 @@ public:
 
 	virtual void set_context(int p_context);
 
+	virtual void set_use_vsync(bool p_enable);
+	virtual bool is_vsnc_enabled() const;
+
+	Dictionary get_engine_version() const;
+
+	bool is_hidpi_allowed() const { return _allow_hidpi; }
 	OS();
 	virtual ~OS();
 

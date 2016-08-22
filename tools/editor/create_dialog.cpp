@@ -36,16 +36,19 @@
 #if 1
 
 #include "os/keyboard.h"
+#include "editor_settings.h"
+#include "editor_help.h"
 
 
 void CreateDialog::popup(bool p_dontclear) {
 
-	popup_centered_ratio(0.6);
+	popup_centered_ratio();
 	if (p_dontclear)
 		search_box->select_all();
 	else
 		search_box->clear();
 	search_box->grab_focus();
+
 	_update_search();
 
 
@@ -101,11 +104,26 @@ void CreateDialog::add_type(const String& p_type,HashMap<String,TreeItem*>& p_ty
 		item->set_selectable(0,false);
 	} else {
 
-		if (!*to_select && (search_box->get_text()=="" || p_type.findn(search_box->get_text())!=-1)) {
+		if (!*to_select && (search_box->get_text().is_subsequence_ofi(p_type))) {
 			*to_select=item;
 		}
 
 	}
+
+	if (bool(EditorSettings::get_singleton()->get("scenetree_editor/start_create_dialog_fully_expanded"))) {
+		item->set_collapsed(false);
+	} else {
+		// don't collapse search results
+		bool collapse = (search_box->get_text() == "");
+		// don't collapse the root node
+		collapse &= (item != p_root);
+		// don't collapse abstract nodes on the first tree level
+		collapse &= ((parent != p_root) || (ObjectTypeDB::can_instance(p_type)));
+		item->set_collapsed(collapse);
+	}
+
+	const String& description = EditorHelp::get_doc_data()->class_list[p_type].brief_description;
+	item->set_tooltip(0,description);
 
 
 	if (has_icon(p_type,"EditorIcons")) {
@@ -136,6 +154,9 @@ void CreateDialog::_update_search() {
 	TreeItem *root = search_options->create_item();
 
 	root->set_text(0,base_type);
+	if (has_icon(base_type,"EditorIcons")) {
+		root->set_icon(0,get_icon(base_type,"EditorIcons"));
+	}
 
 	List<StringName>::Element *I=type_list.front();
 	TreeItem *to_select=NULL;
@@ -143,19 +164,23 @@ void CreateDialog::_update_search() {
 	for(;I;I=I->next()) {
 
 
+
 		String type=I->get();
 
+		if (base_type=="Node" && type.begins_with("Editor"))
+			continue; // do not show editor nodes
 
 		if (!ObjectTypeDB::can_instance(type))
 			continue; // cant create what can't be instanced
-		if (search_box->get_text()=="")
+
+		if (search_box->get_text()=="") {
 			add_type(type,types,root,&to_select);
-		else {
+		} else {
 
 			bool found=false;
 			String type=I->get();
 			while(type!="" && ObjectTypeDB::is_type(type,base_type) && type!=base_type) {
-				if (type.findn(search_box->get_text())!=-1) {
+				if (search_box->get_text().is_subsequence_ofi(type)) {
 
 					found=true;
 					break;
@@ -169,7 +194,7 @@ void CreateDialog::_update_search() {
 				add_type(I->get(),types,root,&to_select);
 		}
 
-		if (EditorNode::get_editor_data().get_custom_types().has(type)) {
+		if (EditorNode::get_editor_data().get_custom_types().has(type) && ObjectTypeDB::is_type(type, base_type)) {
 			//there are custom types based on this... cool.
 			//print_line("there are custom types");
 
@@ -177,10 +202,11 @@ void CreateDialog::_update_search() {
 			const Vector<EditorData::CustomType> &ct = EditorNode::get_editor_data().get_custom_types()[type];
 			for(int i=0;i<ct.size();i++) {
 
-				bool show = search_box->get_text()=="" || ct[i].name.findn(search_box->get_text())!=-1;
+				bool show = search_box->get_text().is_subsequence_ofi(ct[i].name);
 
 				if (!show)
 					continue;
+
 				if (!types.has(type))
 					add_type(type,types,root,&to_select);
 
@@ -199,7 +225,7 @@ void CreateDialog::_update_search() {
 
 				}
 
-				if (!to_select && (search_box->get_text()=="" || ct[i].name.findn(search_box->get_text())!=-1)) {
+				if (!to_select) {
 					to_select=item;
 				}
 
@@ -229,7 +255,6 @@ void CreateDialog::_notification(int p_what) {
 	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		connect("confirmed",this,"_confirmed");
-		_update_search();
 	}
 	if (p_what==NOTIFICATION_EXIT_TREE) {
 
@@ -251,16 +276,28 @@ void CreateDialog::_notification(int p_what) {
 void CreateDialog::set_base_type(const String& p_base) {
 
 	base_type=p_base;
-	set_title("Create New "+p_base);
+	set_title(TTR("Create New")+" "+p_base);
 	_update_search();
+}
+
+String CreateDialog::get_selected_type() {
+
+	TreeItem *selected = search_options->get_selected();
+	if (selected)
+		return selected->get_text(0);
+	else
+		return String();
 }
 
 Object *CreateDialog::instance_selected() {
 
 	TreeItem *selected = search_options->get_selected();
+
 	if (selected) {
 
 		String custom = selected->get_metadata(0);
+
+
 		if (custom!=String()) {
 			if (EditorNode::get_editor_data().get_custom_types().has(custom)) {
 
@@ -289,6 +326,7 @@ Object *CreateDialog::instance_selected() {
 		}
 	}
 
+
 	return NULL;
 }
 
@@ -316,12 +354,12 @@ CreateDialog::CreateDialog() {
 	add_child(vbc);
 	set_child_rect(vbc);
 	search_box = memnew( LineEdit );
-	vbc->add_margin_child("Search:",search_box);
+	vbc->add_margin_child(TTR("Search:"),search_box);
 	search_box->connect("text_changed",this,"_text_changed");
 	search_box->connect("input_event",this,"_sbox_input");
 	search_options = memnew( Tree );
-	vbc->add_margin_child("Matches:",search_options,true);
-	get_ok()->set_text("Create");
+	vbc->add_margin_child(TTR("Matches:"),search_options,true);
+	get_ok()->set_text(TTR("Create"));
 	get_ok()->set_disabled(true);
 	register_text_enter(search_box);
 	set_hide_on_ok(false);
@@ -541,7 +579,7 @@ void CreateDialog::_bind_methods() {
 
 void CreateDialog::set_base_type(const String& p_base) {
 
-	set_title("Create "+p_base+" Type");
+	set_title(vformat("Create %s Type",p_base));
 
 	if (base==p_base)
 		return;

@@ -79,8 +79,8 @@ const char* GDTokenizer::token_names[TK_MAX]={
 "for",
 "do",
 "while",
-"switch",
-"case",
+"switch (reserved)",
+"case (reserved)",
 "break",
 "continue",
 "pass",
@@ -100,6 +100,10 @@ const char* GDTokenizer::token_names[TK_MAX]={
 "yield",
 "signal",
 "breakpoint",
+"rpc",
+"sync",
+"master",
+"slave",
 "'['",
 "']'",
 "'{'",
@@ -725,7 +729,7 @@ void GDTokenizerText::_advance() {
 					if (hexa_found) {
 						int val = str.hex_to_int();
 						_make_constant(val);
-					} else if (period_found) {
+					} else if (period_found || exponent_found) {
 						real_t val = str.to_double();
 						//print_line("*%*%*%*% to convert: "+str+" result: "+rtos(val));
 						_make_constant(val);
@@ -865,6 +869,10 @@ void GDTokenizerText::_advance() {
 								{TK_PR_YIELD,"yield"},
 								{TK_PR_SIGNAL,"signal"},
 								{TK_PR_BREAKPOINT,"breakpoint"},
+								{TK_PR_REMOTE,"remote"},
+								{TK_PR_MASTER,"master"},
+								{TK_PR_SLAVE,"slave"},
+								{TK_PR_SYNC,"sync"},
 								{TK_PR_CONST,"const"},
 								//controlflow
 								{TK_CF_IF,"if"},
@@ -874,6 +882,7 @@ void GDTokenizerText::_advance() {
 								{TK_CF_WHILE,"while"},
 								{TK_CF_DO,"do"},
 								{TK_CF_SWITCH,"switch"},
+								{TK_CF_CASE,"case"},
 								{TK_CF_BREAK,"break"},
 								{TK_CF_CONTINUE,"continue"},
 								{TK_CF_RETURN,"return"},
@@ -1046,7 +1055,7 @@ void GDTokenizerText::advance(int p_amount) {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define BYTECODE_VERSION 10
+#define BYTECODE_VERSION 11
 
 Error GDTokenizerBuffer::set_code_buffer(const Vector<uint8_t> & p_buffer) {
 
@@ -1155,7 +1164,6 @@ Vector<uint8_t> GDTokenizerBuffer::parse_code_string(const String& p_code) {
 	GDTokenizerText tt;
 	tt.set_code(p_code);
 	int line=-1;
-	int col=0;
 
 	while(true) {
 

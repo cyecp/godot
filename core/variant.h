@@ -151,11 +151,7 @@ private:
 		InputEvent *_input_event;
 		Image *_image;
 		void *_ptr; //generic pointer
-#ifdef USE_QUAD_VECTORS
-		uint8_t _mem[sizeof(ObjData) > (sizeof(real_t)*5) ? sizeof(ObjData) : (sizeof(real_t)*5)]; // plane uses an extra real
-#else
 		uint8_t _mem[sizeof(ObjData) > (sizeof(real_t)*4) ? sizeof(ObjData) : (sizeof(real_t)*4)];
-#endif
 	} _data;
 
 
@@ -202,9 +198,8 @@ public:
 	operator unsigned long() const;
 #endif
 
-#ifndef	CHARTYPE_16BITS
+
 	operator CharType() const;
-#endif
 	operator float() const;
 	operator double() const;
 	operator String() const;
@@ -390,6 +385,7 @@ public:
 		Type expected;
 	};
 
+	void call_ptr(const StringName& p_method,const Variant** p_args,int p_argcount,Variant* r_ret,CallError &r_error);
 	Variant call(const StringName& p_method,const Variant** p_args,int p_argcount,CallError &r_error);
 	Variant call(const StringName& p_method,const Variant& p_arg1=Variant(),const Variant& p_arg2=Variant(),const Variant& p_arg3=Variant(),const Variant& p_arg4=Variant(),const Variant& p_arg5=Variant());
 
@@ -399,6 +395,10 @@ public:
 
 	void get_method_list(List<MethodInfo> *p_list) const;
 	bool has_method(const StringName& p_method) const;
+	static Vector<Variant::Type> get_method_argument_types(Variant::Type p_type,const StringName& p_method);
+	static Vector<Variant> get_method_default_arguments(Variant::Type p_type,const StringName& p_method);
+	static Variant::Type get_method_return_type(Variant::Type p_type,const StringName& p_method,bool* r_has_return=NULL);
+	static Vector<StringName> get_method_argument_names(Variant::Type p_type,const StringName& p_method);
 
 	void set_named(const StringName& p_index, const Variant& p_value, bool *r_valid=NULL);
 	Variant get_named(const StringName& p_index, bool *r_valid=NULL) const;
@@ -469,4 +469,6 @@ const Variant::ObjData& Variant::_get_obj() const {
 	return *reinterpret_cast<const ObjData*>(&_data._mem[0]);
 }
 
+
+String vformat(const String& p_text, const Variant& p1=Variant(),const Variant& p2=Variant(),const Variant& p3=Variant(),const Variant& p4=Variant(),const Variant& p5=Variant());
 #endif
